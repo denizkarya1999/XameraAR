@@ -41,11 +41,15 @@ import android.util.Log;
 import android.util.Size;
 import android.view.MotionEvent;
 import android.view.Surface;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+
 import com.google.ar.core.Anchor;
 import com.google.ar.core.ArCoreApk;
 import com.google.ar.core.Camera;
@@ -60,6 +64,7 @@ import com.google.ar.core.Session;
 import com.google.ar.core.SharedCamera;
 import com.google.ar.core.Trackable;
 import com.google.ar.core.TrackingState;
+import com.google.ar.core.examples.java.sharedcamera.R;
 import com.xamera.ar.core.components.java.common.helpers.CameraPermissionHelper;
 import com.xamera.ar.core.components.java.common.helpers.DisplayRotationHelper;
 import com.xamera.ar.core.components.java.common.helpers.FullScreenHelper;
@@ -71,12 +76,14 @@ import com.xamera.ar.core.components.java.common.rendering.PlaneRenderer;
 import com.xamera.ar.core.components.java.common.rendering.PointCloudRenderer;
 import com.google.ar.core.exceptions.CameraNotAvailableException;
 import com.google.ar.core.exceptions.UnavailableException;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -143,6 +150,8 @@ public class SharedCameraActivity extends AppCompatActivity
 
   // The LetterRenderer for our 2D letter.
   private LetterRenderer letterRenderer;
+  // The PathRenderer for our 3D path.
+  private PathRenderer pathRenderer;
 
   // Matrices for computing the final MVP.
   private final float[] mModelMatrix = new float[16];
@@ -150,6 +159,10 @@ public class SharedCameraActivity extends AppCompatActivity
 
   // The obtained letter (set via AssignLetter).
   private static String ObtainedLetter = "DENIZ";
+
+  // Flag for controlling the rendering mode.
+  // If true, 2D Letter Cube mode is active; if false, 3D Path mode is active.
+  private boolean show2DLetterBox = true;
 
   // Helper class to associate an anchor with a color.
   private static class ColoredAnchor {
@@ -283,6 +296,18 @@ public class SharedCameraActivity extends AppCompatActivity
     surfaceView.setOnTouchListener(tapHelper);
     imageTextLinearLayout = findViewById(R.id.image_text_layout);
 
+    // Initialize the mode toggle CheckBox.
+    CheckBox modeCheckbox = findViewById(R.id.checkbox_mode);
+    modeCheckbox.setChecked(true);
+    modeCheckbox.setText("2D Letter Box");
+    modeCheckbox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+      @Override
+      public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+        show2DLetterBox = isChecked;
+        modeCheckbox.setText(isChecked ? "2D Letter Box" : "3D Path");
+      }
+    });
+
     // (If you have an AR toggle switch in your layout, you can remove it.)
     messageSnackbarHelper.setMaxLines(4);
     updateSnackbarMessage();
@@ -364,7 +389,7 @@ public class SharedCameraActivity extends AppCompatActivity
     messageSnackbarHelper.showMessage(
             this,
             arcoreActive
-                    ? "ARCore is active.\nTap on a detected surface to place the letter."
+                    ? "ARCore is active.\nTap on a detected surface to place the letter or add to the path."
                     : "ARCore is paused.");
   }
 
@@ -548,6 +573,8 @@ public class SharedCameraActivity extends AppCompatActivity
       openCamera();
       // Initialize the 2D letter renderer with the obtained letter.
       letterRenderer = new LetterRenderer(this, ObtainedLetter);
+      // Initialize the 3D path renderer.
+      pathRenderer = new PathRenderer();
     } catch (IOException e) {
       Log.e(TAG, "Failed to read an asset file", e);
     }
@@ -600,7 +627,7 @@ public class SharedCameraActivity extends AppCompatActivity
     Frame frame = sharedSession.update();
     Camera camera = frame.getCamera();
 
-    // Create an AR anchor when the user taps.
+    // Create an AR anchor or add a path point when the user taps.
     handleTap(frame, camera);
 
     backgroundRenderer.draw(frame);
@@ -626,38 +653,67 @@ public class SharedCameraActivity extends AppCompatActivity
     }
     planeRenderer.drawPlanes(sharedSession.getAllTrackables(Plane.class),
             camera.getDisplayOrientedPose(), projmtx);
-    float scaleFactor = 1.0f;
-    // --- Render the 2D letter as a floating object at each anchor created by tap ---
-    for (ColoredAnchor coloredAnchor : anchors) {
-      if (coloredAnchor.anchor.getTrackingState() != TrackingState.TRACKING) continue;
-      coloredAnchor.anchor.getPose().toMatrix(anchorMatrix, 0);
-      Matrix.translateM(anchorMatrix, 0, 0, 0.2f, 0); // upward offset for floating effect
-      float letterScale = 1.0f; // adjust as needed
-      Matrix.scaleM(anchorMatrix, 0, letterScale, letterScale, letterScale);
-      Matrix.multiplyMM(mMVPMatrix, 0, viewmtx, 0, anchorMatrix, 0);
-      Matrix.multiplyMM(mMVPMatrix, 0, projmtx, 0, mMVPMatrix, 0);
-      letterRenderer.draw(mMVPMatrix);
+
+    // Render either the 2D letter(s) or the 3D path based on the current mode.
+    if (show2DLetterBox) {
+      // Draw the letter at each AR anchor.
+      for (ColoredAnchor coloredAnchor : anchors) {
+        if (coloredAnchor.anchor.getTrackingState() != TrackingState.TRACKING) continue;
+        coloredAnchor.anchor.getPose().toMatrix(anchorMatrix, 0);
+        Matrix.translateM(anchorMatrix, 0, 0, 0.2f, 0); // upward offset for floating effect
+        float letterScale = 1.0f; // adjust as needed
+        Matrix.scaleM(anchorMatrix, 0, letterScale, letterScale, letterScale);
+        Matrix.multiplyMM(mMVPMatrix, 0, viewmtx, 0, anchorMatrix, 0);
+        Matrix.multiplyMM(mMVPMatrix, 0, projmtx, 0, mMVPMatrix, 0);
+        letterRenderer.draw(mMVPMatrix);
+      }
+    } else {
+      // Compute a combined MVP matrix as projection * view for the 3D path.
+      float[] mvpPathMatrix = new float[16];
+      Matrix.multiplyMM(mvpPathMatrix, 0, projmtx, 0, viewmtx, 0);
+      pathRenderer.draw(mvpPathMatrix);
     }
   }
 
-  // Modified handleTap: when the user taps on a detected surface, create an AR anchor.
+  // Modified handleTap:
+  // If in 2D Letter Cube mode, create an AR anchor and add it to the anchors list.
+  // If in 3D Path mode, add a point to the path using the hit pose.
   private void handleTap(Frame frame, Camera camera) {
     MotionEvent tap = tapHelper.poll();
     if (tap != null && camera.getTrackingState() == TrackingState.TRACKING) {
-      for (HitResult hit : frame.hitTest(tap)) {
-        Trackable trackable = hit.getTrackable();
-        if ((trackable instanceof Plane
-                && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
-                && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
-                || (trackable instanceof Point
-                && ((Point) trackable).getOrientationMode() == OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
-          if (anchors.size() >= 20) {
-            anchors.get(0).anchor.detach();
-            anchors.remove(0);
+      if (show2DLetterBox) {
+        // 2D Letter Cube mode: Create an AR anchor for the letter.
+        for (HitResult hit : frame.hitTest(tap)) {
+          Trackable trackable = hit.getTrackable();
+          if ((trackable instanceof Plane
+                  && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
+                  && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
+                  || (trackable instanceof Point
+                  && ((Point) trackable).getOrientationMode() == OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
+            if (anchors.size() >= 20) {
+              anchors.get(0).anchor.detach();
+              anchors.remove(0);
+            }
+            float[] objColor = new float[] {255f, 255f, 255f, 255f}; // Unused color
+            anchors.add(new ColoredAnchor(hit.createAnchor(), objColor));
+            break;
           }
-          float[] objColor = new float[] {255f, 255f, 255f, 255f}; // Unused color
-          anchors.add(new ColoredAnchor(hit.createAnchor(), objColor));
-          break;
+        }
+      } else {
+        // 3D Path mode: Add a point to the path.
+        for (HitResult hit : frame.hitTest(tap)) {
+          Trackable trackable = hit.getTrackable();
+          if ((trackable instanceof Plane
+                  && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
+                  && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
+                  || (trackable instanceof Point
+                  && ((Point) trackable).getOrientationMode() == OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
+            float x = hit.getHitPose().tx();
+            float y = hit.getHitPose().ty();
+            float z = hit.getHitPose().tz();
+            pathRenderer.addPoint(x, y, z);
+            break;
+          }
         }
       }
     }
