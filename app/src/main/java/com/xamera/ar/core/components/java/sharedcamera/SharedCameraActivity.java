@@ -17,6 +17,7 @@
 package com.xamera.ar.core.components.java.sharedcamera;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -29,6 +30,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
+import android.net.Uri;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
@@ -78,6 +80,7 @@ import com.google.ar.core.exceptions.CameraNotAvailableException;
 import com.google.ar.core.exceptions.UnavailableException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -340,6 +343,7 @@ public class SharedCameraActivity extends AppCompatActivity
     surfaceView.onResume();
     if (surfaceCreated) openCamera();
     displayRotationHelper.onResume();
+    // Optionally, you could also call performFileSearch() here if you prefer.
   }
 
   @Override
@@ -575,6 +579,8 @@ public class SharedCameraActivity extends AppCompatActivity
       letterRenderer = new LetterRenderer(this, ObtainedLetter);
       // Initialize the 3D path renderer.
       pathRenderer = new PathRenderer();
+      // Automatically prompt for file selection each time this activity is opened.
+      performFileSearch();
     } catch (IOException e) {
       Log.e(TAG, "Failed to read an asset file", e);
     }
@@ -760,5 +766,38 @@ public class SharedCameraActivity extends AppCompatActivity
   // Helper function to assign a letter (or word) to be drawn.
   private static void AssignLetter(String targetLetter) {
     ObtainedLetter = targetLetter;
+  }
+
+  // --- New Code for File Selection and Loading Tracking Data ---
+  private static final int READ_REQUEST_CODE = 42;
+
+  // Launch file chooser to let the user pick a text file.
+  private void performFileSearch() {
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
+    intent.setType("text/plain");
+    startActivityForResult(intent, READ_REQUEST_CODE);
+  }
+
+  // Use the InputStream approach to load the file data.
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
+    if (requestCode == READ_REQUEST_CODE && resultCode == RESULT_OK) {
+      if (data != null) {
+        // Obtain the URI for the selected file.
+        Uri uri = data.getData();
+        try {
+          InputStream in = getContentResolver().openInputStream(uri);
+          if (in != null) {
+            // Load the points into the renderer using the stream.
+            pathRenderer.loadFromStream(in);
+            in.close();
+          }
+        } catch (IOException e) {
+          Log.e(TAG, "Error loading tracking data: " + e.getMessage());
+        }
+      }
+    }
   }
 }

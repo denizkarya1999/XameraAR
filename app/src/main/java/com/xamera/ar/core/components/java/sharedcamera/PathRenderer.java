@@ -20,6 +20,8 @@ import android.opengl.GLES20;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -31,14 +33,18 @@ import java.util.ArrayList;
  * Use {@link #addPoint(float, float, float)} to add vertices (for example, when the user taps).
  * Call {@link #draw(float[])} with your current Model-View-Projection (MVP) matrix each frame.
  *
- * This version includes a method {@link #loadFromFile(String)} that reads a text file containing points.
- * Each line in the file should be in one of the following formats:
+ * This version includes two new methods:
+ * <ul>
+ *   <li>{@link #loadFromFile(String)} – loads tracking points from a file given its path.</li>
+ *   <li>{@link #loadFromStream(InputStream)} – loads tracking points from an InputStream.</li>
+ * </ul>
+ *
+ * Each line in the file/stream should be in one of the following formats:
  * <ul>
  *   <li>"x,y"   – in which case z is assumed to be 0.0f</li>
  *   <li>"x,y,z" – all three coordinates are specified</li>
  * </ul>
  */
-
 public class PathRenderer {
 
     // Vertex shader: transforms each vertex with the MVP matrix.
@@ -258,5 +264,66 @@ public class PathRenderer {
         GLES20.glShaderSource(shader, shaderCode);
         GLES20.glCompileShader(shader);
         return shader;
+    }
+
+    /**
+     * Loads tracking points from an InputStream.
+     * Each line in the file should be in one of the following formats:
+     * <ul>
+     *   <li>"x,y"   – in which case z is assumed to be 0.0f</li>
+     *   <li>"x,y,z" – all three coordinates are specified</li>
+     * </ul>
+     * A conversion factor is applied so that the saved values (for example, in pixels)
+     * are converted to meters for AR rendering.
+     *
+     * @param in the InputStream for the file.
+     * @throws IOException if an I/O error occurs.
+     */
+    public void loadFromStream(InputStream in) throws IOException {
+        clearPath();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+        String line;
+        // Example conversion factor: adjust as needed (e.g., from pixels to meters)
+        final float conversionFactor = 0.001f;
+        while ((line = reader.readLine()) != null) {
+            if (line.trim().isEmpty()) continue; // Skip empty lines.
+            String[] parts = line.split(",");
+            try {
+                // Parse the raw values (e.g., in pixels)
+                float x = Float.parseFloat(parts[0].trim());
+                float y = Float.parseFloat(parts[1].trim());
+                float z = (parts.length >= 3) ? Float.parseFloat(parts[2].trim()) : 0.0f;
+                // Convert to AR world units (meters)
+                addPoint(x * conversionFactor, y * conversionFactor, z * conversionFactor);
+            } catch (NumberFormatException e) {
+                System.err.println("Skipping invalid line: " + line);
+            }
+        }
+        reader.close();
+    }
+
+    /**
+     * (Optional) Legacy method: Loads tracking points from a file path.
+     *
+     * @param filePath the full path to the text file.
+     * @throws IOException if an I/O error occurs.
+     */
+    public void loadFromFile(String filePath) throws IOException {
+        clearPath();
+        BufferedReader reader = new BufferedReader(new FileReader(filePath));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.trim().isEmpty()) continue;
+            String[] parts = line.split(",");
+            try {
+                float x = Float.parseFloat(parts[0].trim());
+                float y = Float.parseFloat(parts[1].trim());
+                float z = (parts.length >= 3) ? Float.parseFloat(parts[2].trim()) : 0.0f;
+                addPoint(x, y, z);
+            } catch (NumberFormatException e) {
+                System.err.println("Skipping invalid line: " + line);
+            }
+        }
+        reader.close();
     }
 }
