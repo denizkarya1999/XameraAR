@@ -22,6 +22,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -268,7 +269,8 @@ public class PathRenderer {
 
     /**
      * Loads tracking points from an InputStream.
-     * Each line in the file should be in one of the following formats:
+     * This method handles both multi-line text and single-line, semicolon-separated coordinate strings.
+     * Each coordinate should be in one of the following formats:
      * <ul>
      *   <li>"x,y"   – in which case z is assumed to be 0.0f</li>
      *   <li>"x,y,z" – all three coordinates are specified</li>
@@ -276,54 +278,45 @@ public class PathRenderer {
      * A conversion factor is applied so that the saved values (for example, in pixels)
      * are converted to meters for AR rendering.
      *
-     * @param in the InputStream for the file.
+     * @param in the InputStream for the file or coordinate string.
      * @throws IOException if an I/O error occurs.
      */
     public void loadFromStream(InputStream in) throws IOException {
         clearPath();
         BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+        StringBuilder sb = new StringBuilder();
         String line;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line).append(" ");
+        }
+        reader.close();
+        String allCoordinates = sb.toString().trim();
+        if (allCoordinates.isEmpty()) return;
+
+        // Check if the coordinates are separated by semicolons.
+        String[] coordinateStrings;
+        if (allCoordinates.contains(";")) {
+            coordinateStrings = allCoordinates.split(";");
+        } else {
+            // Assume each line is a separate coordinate (split by whitespace)
+            coordinateStrings = allCoordinates.split("\\s+");
+        }
+
         // Example conversion factor: adjust as needed (e.g., from pixels to meters)
         final float conversionFactor = 0.001f;
-        while ((line = reader.readLine()) != null) {
-            if (line.trim().isEmpty()) continue; // Skip empty lines.
-            String[] parts = line.split(",");
+        for (String coordStr : coordinateStrings) {
+            coordStr = coordStr.trim();
+            if (coordStr.isEmpty()) continue;
+            String[] parts = coordStr.split(",");
             try {
-                // Parse the raw values (e.g., in pixels)
                 float x = Float.parseFloat(parts[0].trim());
                 float y = Float.parseFloat(parts[1].trim());
                 float z = (parts.length >= 3) ? Float.parseFloat(parts[2].trim()) : 0.0f;
                 // Convert to AR world units (meters)
                 addPoint(x * conversionFactor, y * conversionFactor, z * conversionFactor);
             } catch (NumberFormatException e) {
-                System.err.println("Skipping invalid line: " + line);
+                System.err.println("Skipping invalid coordinate: " + coordStr);
             }
         }
-        reader.close();
-    }
-
-    /**
-     * (Optional) Legacy method: Loads tracking points from a file path.
-     *
-     * @param filePath the full path to the text file.
-     * @throws IOException if an I/O error occurs.
-     */
-    public void loadFromFile(String filePath) throws IOException {
-        clearPath();
-        BufferedReader reader = new BufferedReader(new FileReader(filePath));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            if (line.trim().isEmpty()) continue;
-            String[] parts = line.split(",");
-            try {
-                float x = Float.parseFloat(parts[0].trim());
-                float y = Float.parseFloat(parts[1].trim());
-                float z = (parts.length >= 3) ? Float.parseFloat(parts[2].trim()) : 0.0f;
-                addPoint(x, y, z);
-            } catch (NumberFormatException e) {
-                System.err.println("Skipping invalid line: " + line);
-            }
-        }
-        reader.close();
     }
 }
