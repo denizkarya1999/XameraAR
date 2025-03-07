@@ -128,7 +128,8 @@ public class LetterRenderer {
     private int loadLetterTexture(String letter) {
         Paint paint = new Paint();
         paint.setTextSize(128); // adjust text size as needed
-        paint.setColor(Color.YELLOW);
+        // Set text color to maize (#FFCB05: RGB 255,203,5)
+        paint.setColor(Color.rgb(255, 203, 5));
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setAntiAlias(true);
         Rect bounds = new Rect();
@@ -137,8 +138,8 @@ public class LetterRenderer {
         int bmpHeight = bounds.height() + 20;
         Bitmap bitmap = Bitmap.createBitmap(bmpWidth, bmpHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        // Set background color to dark blue.
-        canvas.drawColor(Color.rgb(0, 0, 139));
+        // Set background color to dark blue (#00274C: RGB 0,39,76)
+        canvas.drawColor(Color.rgb(0, 39, 76));
         canvas.drawText(letter, bmpWidth / 2f, bmpHeight - 10, paint);
         int[] textureIds = new int[1];
         GLES20.glGenTextures(1, textureIds, 0);

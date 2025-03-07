@@ -80,7 +80,7 @@ public class PathRenderer {
     private int vertexCount = 0;
 
     // Color for the 3D path (light blue)
-    private float[] pathColor = {0.5f, 0.8f, 1.0f, 1.0f};
+    private float[] pathColor = {1.0f, 203/255.0f, 5/255.0f, 1.0f};
 
     // Flag: if true, generate a smoothed path from the raw points.
     // (A smoothing algorithm like Catmull–Rom requires at least 4 points.)

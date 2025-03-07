@@ -8,8 +8,8 @@ import com.google.android.material.snackbar.BaseTransientBottomBar;
 import com.google.android.material.snackbar.Snackbar;
 
 public final class SnackbarHelper {
-  // Update background color to dark blue (#000066) with full opacity.
-  private static final int BACKGROUND_COLOR = 0xff000066;
+  // Updated: Background color is Maize (#FFCB05) with full opacity.
+  private static final int BACKGROUND_COLOR = 0xFFFFCB05;
   private Snackbar messageSnackbar;
   private enum DismissBehavior { HIDE, SHOW, FINISH };
   private int maxLines = 2;
@@ -102,13 +102,13 @@ public final class SnackbarHelper {
                         : snackbarView,
                 message,
                 duration);
-        // Set the background color to dark blue.
+        // Set the background color to Maize.
         messageSnackbar.getView().setBackgroundColor(BACKGROUND_COLOR);
-        // Set the text color to yellow.
+        // Set the text color to UMich dark blue (#00274C).
         TextView snackbarText = messageSnackbar.getView()
                 .findViewById(com.google.android.material.R.id.snackbar_text);
         snackbarText.setMaxLines(maxLines);
-        snackbarText.setTextColor(Color.parseColor("#DAEE2C"));
+        snackbarText.setTextColor(Color.parseColor("#00274C"));
 
         if (dismissBehavior != DismissBehavior.HIDE && duration == Snackbar.LENGTH_INDEFINITE) {
           messageSnackbar.setAction("Dismiss", new View.OnClickListener() {

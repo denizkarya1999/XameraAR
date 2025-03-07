@@ -26,9 +26,9 @@
             android:layout_height="wrap_content"
             android:checked="true"
             android:text="2D Letter Box"
-            android:textColor="#DAEE2C"
+            android:textColor="#FFCB05"
             android:textSize="18sp"
-            android:buttonTint="#DAEE2C"
+            android:buttonTint="#FFCB05"
             />
     </RelativeLayout>
 
