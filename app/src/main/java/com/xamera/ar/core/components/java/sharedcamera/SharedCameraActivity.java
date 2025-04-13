@@ -78,6 +78,7 @@ import com.xamera.ar.core.components.java.common.rendering.PlaneRenderer;
 import com.xamera.ar.core.components.java.common.rendering.PointCloudRenderer;
 import com.google.ar.core.exceptions.CameraNotAvailableException;
 import com.google.ar.core.exceptions.UnavailableException;
+import android.view.WindowManager;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -168,6 +169,8 @@ public class SharedCameraActivity extends AppCompatActivity
   // If true, 2D Letter Cube mode is active; if false, 3D Path mode is active.
   private boolean show2DLetterBox = true;
 
+  private boolean autoAnchorCreated = false;
+
   // Helper class to associate an anchor with a color.
   private static class ColoredAnchor {
     public final Anchor anchor;
@@ -234,7 +237,6 @@ public class SharedCameraActivity extends AppCompatActivity
                 captureSessionChangesPossible = true;
                 SharedCameraActivity.this.notify();
               }
-              updateSnackbarMessage();
             }
             @Override
             public void onCaptureQueueEmpty(@NonNull CameraCaptureSession session) {
@@ -283,6 +285,10 @@ public class SharedCameraActivity extends AppCompatActivity
     super.onCreate(savedInstanceState);
     setContentView(R.layout.ar_activity);
 
+    // Disable sleeping while this activity is visible.
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    setContentView(R.layout.ar_activity);
+
     // Check for the letter passed from MainActivity.
     // If no extra is provided, default to "DENIZ".
     String letter = getIntent().getStringExtra("LETTER_KEY");
@@ -306,31 +312,10 @@ public class SharedCameraActivity extends AppCompatActivity
     tapHelper = new TapHelper(this);
     surfaceView.setOnTouchListener(tapHelper);
     imageTextLinearLayout = findViewById(R.id.image_text_layout);
-
-    // Initialize the mode toggle CheckBox.
-    CheckBox modeCheckbox = findViewById(R.id.checkbox_mode);
-    modeCheckbox.setChecked(true);
-    modeCheckbox.setText("2D Letter Box");
-    modeCheckbox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-      @Override
-      public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-        show2DLetterBox = isChecked;
-        modeCheckbox.setText(isChecked ? "2D Letter Box" : "3D Path");
-      }
-    });
-
-    // ***** NEW: If PATH_COORDINATES extra is provided, switch to 3D Path mode *****
-    String pathCoordinates = getIntent().getStringExtra("PATH_COORDINATES");
-    if (pathCoordinates != null && !pathCoordinates.isEmpty()) {
-      show2DLetterBox = false;
-      modeCheckbox.setChecked(false);
-      modeCheckbox.setText("3D Path");
-    }
     // *************************************************************************
 
     // (If you have an AR toggle switch in your layout, you can remove it.)
     messageSnackbarHelper.setMaxLines(4);
-    updateSnackbarMessage();
   }
 
   @Override
@@ -388,7 +373,6 @@ public class SharedCameraActivity extends AppCompatActivity
         backgroundRenderer.suppressTimestampZeroRendering(false);
         sharedSession.resume();
         arcoreActive = true;
-        updateSnackbarMessage();
         sharedCamera.setCaptureCallback(cameraCaptureCallback, backgroundHandler);
       } catch (CameraNotAvailableException e) {
         Log.e(TAG, "Failed to resume ARCore session", e);
@@ -402,16 +386,7 @@ public class SharedCameraActivity extends AppCompatActivity
       sharedSession.pause();
       isFirstFrameWithoutArcore.set(true);
       arcoreActive = false;
-      updateSnackbarMessage();
     }
-  }
-
-  private void updateSnackbarMessage() {
-    messageSnackbarHelper.showMessage(
-            this,
-            arcoreActive
-                    ? "ARCore is active.\nTap on a detected surface to place the letter or add to the path."
-                    : "ARCore is paused.");
   }
 
   private void setRepeatingCaptureRequest() {
@@ -656,101 +631,69 @@ public class SharedCameraActivity extends AppCompatActivity
   }
 
   public void onDrawFrameARCore() throws CameraNotAvailableException {
+    // Return early if ARCore is not active or if session creation failed.
     if (!arcoreActive) return;
     if (errorCreatingSession) return;
+
+    // Update the ARCore session and retrieve the current frame.
     Frame frame = sharedSession.update();
     Camera camera = frame.getCamera();
 
-    // Create an AR anchor or add a path point when the user taps.
-    handleTap(frame, camera);
-
+    // --- Draw the AR background ---
+    // This draws the camera image as the background.
     backgroundRenderer.draw(frame);
-    trackingStateHelper.updateKeepScreenOnFlag(camera.getTrackingState());
-    if (camera.getTrackingState() == TrackingState.PAUSED) return;
+
+    // --- Obtain the projection and view matrices from the ARCore camera ---
     float[] projmtx = new float[16];
-    camera.getProjectionMatrix(projmtx, 0, 0.1f, 100.0f);
     float[] viewmtx = new float[16];
+    camera.getProjectionMatrix(projmtx, 0, 0.1f, 100.0f);
     camera.getViewMatrix(viewmtx, 0);
-    final float[] colorCorrectionRgba = new float[4];
-    frame.getLightEstimate().getColorCorrection(colorCorrectionRgba, 0);
-    try (PointCloud pointCloud = frame.acquirePointCloud()) {
-      pointCloudRenderer.update(pointCloud);
-      pointCloudRenderer.draw(viewmtx, projmtx);
-    }
-    if (messageSnackbarHelper.isShowing()) {
-      for (Plane plane : sharedSession.getAllTrackables(Plane.class)) {
-        if (plane.getTrackingState() == TrackingState.TRACKING) {
-          messageSnackbarHelper.hide(this);
+
+    // --- Auto-create a letter box anchor if no anchor exists and the tracking state is good ---
+    if (!autoAnchorCreated && camera.getTrackingState() == TrackingState.TRACKING) {
+      final int centerX = surfaceView.getWidth() / 2;
+      final int centerY = surfaceView.getHeight() / 2;
+      for (HitResult hit : frame.hitTest(centerX, centerY)) {
+        Trackable trackable = hit.getTrackable();
+        if (((trackable instanceof Plane)
+                && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
+                && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
+                ||
+                ((trackable instanceof Point)
+                        && ((Point) trackable).getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
+          if (anchors.size() >= 20) {
+            anchors.get(0).anchor.detach();
+            anchors.remove(0);
+          }
+          anchors.add(new ColoredAnchor(hit.createAnchor(), new float[]{255f, 255f, 255f, 255f}));
+          autoAnchorCreated = true;
           break;
         }
       }
     }
-    planeRenderer.drawPlanes(sharedSession.getAllTrackables(Plane.class),
-            camera.getDisplayOrientedPose(), projmtx);
 
-    // Render either the 2D letter(s) or the 3D path based on the current mode.
-    if (show2DLetterBox) {
-      // Draw the letter at each AR anchor.
-      for (ColoredAnchor coloredAnchor : anchors) {
-        if (coloredAnchor.anchor.getTrackingState() != TrackingState.TRACKING) continue;
-        coloredAnchor.anchor.getPose().toMatrix(anchorMatrix, 0);
-        Matrix.translateM(anchorMatrix, 0, 0, 0.2f, 0); // upward offset for floating effect
-        float letterScale = 1.0f; // adjust as needed
-        Matrix.scaleM(anchorMatrix, 0, letterScale, letterScale, letterScale);
-        Matrix.multiplyMM(mMVPMatrix, 0, viewmtx, 0, anchorMatrix, 0);
-        Matrix.multiplyMM(mMVPMatrix, 0, projmtx, 0, mMVPMatrix, 0);
-        letterRenderer.draw(mMVPMatrix);
-      }
-    } else {
-      // Compute a combined MVP matrix as projection * view for the 3D path.
-      float[] mvpPathMatrix = new float[16];
-      Matrix.multiplyMM(mvpPathMatrix, 0, projmtx, 0, viewmtx, 0);
-      pathRenderer.draw(mvpPathMatrix);
+    // --- Render the letter cube anchors ---
+    for (ColoredAnchor coloredAnchor : anchors) {
+      if (coloredAnchor.anchor.getTrackingState() != TrackingState.TRACKING)
+        continue;
+      // Copy the anchor's pose matrix into anchorMatrix.
+      coloredAnchor.anchor.getPose().toMatrix(anchorMatrix, 0);
+      // Apply an upward offset to lift the letter slightly (adjust as necessary).
+      Matrix.translateM(anchorMatrix, 0, 0, 0.2f, 0);
+      // Apply scaling (adjust letterScale as needed).
+      float letterScale = 1.0f;
+      Matrix.scaleM(anchorMatrix, 0, letterScale, letterScale, letterScale);
+      // Compute the final Model-View-Projection matrix.
+      Matrix.multiplyMM(mMVPMatrix, 0, viewmtx, 0, anchorMatrix, 0);
+      Matrix.multiplyMM(mMVPMatrix, 0, projmtx, 0, mMVPMatrix, 0);
+      // Draw the letter cube.
+      letterRenderer.draw(mMVPMatrix);
     }
-  }
 
-  // Modified handleTap:
-  // If in 2D Letter Cube mode, create an AR anchor and add it to the anchors list.
-  // If in 3D Path mode, add a point to the path using the hit pose.
-  private void handleTap(Frame frame, Camera camera) {
-    MotionEvent tap = tapHelper.poll();
-    if (tap != null && camera.getTrackingState() == TrackingState.TRACKING) {
-      if (show2DLetterBox) {
-        // 2D Letter Cube mode: Create an AR anchor for the letter.
-        for (HitResult hit : frame.hitTest(tap)) {
-          Trackable trackable = hit.getTrackable();
-          if ((trackable instanceof Plane
-                  && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
-                  && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
-                  || (trackable instanceof Point
-                  && ((Point) trackable).getOrientationMode() == OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
-            if (anchors.size() >= 20) {
-              anchors.get(0).anchor.detach();
-              anchors.remove(0);
-            }
-            float[] objColor = new float[] {255f, 255f, 255f, 255f}; // Unused color
-            anchors.add(new ColoredAnchor(hit.createAnchor(), objColor));
-            break;
-          }
-        }
-      } else {
-        // 3D Path mode: Add a point to the path.
-        for (HitResult hit : frame.hitTest(tap)) {
-          Trackable trackable = hit.getTrackable();
-          if ((trackable instanceof Plane
-                  && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
-                  && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
-                  || (trackable instanceof Point
-                  && ((Point) trackable).getOrientationMode() == OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
-            float x = hit.getHitPose().tx();
-            float y = hit.getHitPose().ty();
-            float z = hit.getHitPose().tz();
-            pathRenderer.addPoint(x, y, z);
-            break;
-          }
-        }
-      }
-    }
+    // --- Render the 3D path ---
+    float[] mvpPathMatrix = new float[16];
+    Matrix.multiplyMM(mvpPathMatrix, 0, projmtx, 0, viewmtx, 0);
+    pathRenderer.draw(mvpPathMatrix);
   }
 
   // Utility to check ARCore support.

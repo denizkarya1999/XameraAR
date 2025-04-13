@@ -10,28 +10,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Overlay container for checkbox in top-left corner -->
-    <RelativeLayout
-        android:id="@+id/overlay_container"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentStart="true"
-        android:layout_margin="16dp">
-
-        <!-- CheckBox for mode selection. -->
-        <CheckBox
-            android:id="@+id/checkbox_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="2D Letter Box"
-            android:textColor="#FFCB05"
-            android:textSize="18sp"
-            android:buttonTint="#FFCB05"
-            />
-    </RelativeLayout>
-
     <!-- Additional UI elements -->
     <LinearLayout
         android:id="@+id/image_text_layout"
